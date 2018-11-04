@@ -1,0 +1,9 @@
+[package]
+name = "fed"
+version = "0.1.0"
+authors = ["Julius Schmidt <aiju@phicode.de>"]
+
+[dependencies]
+gl = "*"
+sdl2 = "*"
+imgui-sys = "*"
