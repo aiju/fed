@@ -1,6 +1,15 @@
+extern crate imgui_sys;
+extern crate gl;
+extern crate sdl2;
+
 mod gfx;
+mod dat;
+mod hjgl;
+mod hjimgui;
 
 use gfx::*;
+use dat::*;
+use hjimgui::*;
 
 use std::collections::{HashMap, HashSet};
 
@@ -252,5 +261,11 @@ impl FED {
 
 fn main() {
 	let mut fed = FED::new();
-	gfx::init(&mut |imgui| fed.render(imgui));
+	let mut gfx = GFX::new();
+	let mut imgui = Imgui::new(900.0, 900.0);
+	
+	while gfx.frame_start(&mut imgui) {
+		fed.render(&mut imgui);
+		gfx.frame_end(&mut imgui);
+	}
 }
