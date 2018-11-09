@@ -6,62 +6,14 @@ mod gfx;
 mod dat;
 mod hjgl;
 mod hjimgui;
+mod pointman;
 
 use gfx::*;
 use dat::*;
 use hjimgui::*;
+use pointman::*;
 
 use std::collections::{HashMap, HashSet};
-
-const POINT_RADIUS : f32 = 5.0;
-
-#[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
-struct ID {
-	id: u64
-}
-impl ID {
-	fn new() -> ID {
-		static mut I: u64 = 0;
-		unsafe {
-			I += 1;
-			ID { id: I }
-		}
-	}
-}
-
-struct PointMan {
-	pt: HashMap<ID, Vec2>,
-}
-impl PointMan {
-	fn new() -> PointMan {
-		PointMan {
-			pt: HashMap::new()
-		}
-	}
-	fn add(&mut self, p: Vec2) {
-		self.pt.insert(ID::new(), p);
-	}
-	fn grab(&self, p: Vec2) -> Vec<ID> {
-		self.pt.iter().filter(|(_,x)| x.dist(p) <= POINT_RADIUS).map(|(&id,_)| id).collect()
-	}
-	fn draw(&mut self, sel: &HashSet<ID>) -> Vec<DrawCmd> {
-		self.pt.iter().map(|(id,&c)|
-			DrawCmd::CircleFilled(c, POINT_RADIUS,
-				if sel.contains(id) {
-					Color::new(255, 127, 127, 255)
-				} else {
-					Color::new(127, 0, 0, 255)
-				}
-			)
-		).collect()
-	}
-	fn mv(&mut self, id: ID, p: Vec2) {
-		*self.pt.get_mut(&id).unwrap() = p;
-	}
-	fn mv_rel(&mut self, id: ID, p: Vec2) {
-		*self.pt.get_mut(&id).unwrap() += p;
-	}
-}
 
 #[derive(Copy, Clone, Debug)]
 enum Constr {
@@ -82,11 +34,8 @@ impl ConstrMan {
 		self.ct.push(c);
 	}
 	fn solve(&mut self, pm: &mut PointMan) {
-		if pm.pt.len() == 0 {
-			return;
-		}
 		let mut newv: HashMap<ID, (Vec2, Vec2, Vec2)>
-			= pm.pt.iter().map(|(&id, &x)| (id, (x,x,x))).collect();
+			= pm.iter().map(|(id, &x)| (id, (x,x,x))).collect();
 		{
 			for (_, t) in newv.iter_mut() {
 				let v = t.2;
@@ -126,7 +75,7 @@ impl ConstrMan {
 			}
 		}
 		for (&k, &(_, _, c)) in &newv {
-			pm.mv(k, c)
+			pm[k] = c
 		}
 	}
 }
@@ -182,7 +131,7 @@ impl FED {
 	}
 	fn movedown(&mut self, p: Vec2) {
 		for &i in &self.sel {
-			self.pm.mv_rel(i, p - self.downpos);
+			self.pm[i] += p - self.downpos;
 		}
 		self.cm.solve(&mut self.pm);
 		self.downpos = p;
