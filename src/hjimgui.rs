@@ -5,7 +5,6 @@ use sdl2::keyboard::Scancode;
 use std::os::raw::*;
 use gl::types::*;
 use std::time::Instant;
-use std::ffi::CString;
 
 macro_rules! offset_of {
 	($ty:ty, $field:ident) => {
@@ -307,6 +306,10 @@ impl Imgui {
 
 	pub fn is_mouse_clicked(&self, x: i32) -> bool {
 		unsafe { igIsMouseClicked(x, false) }
+	}
+	
+	pub fn is_mouse_released(&self, x: i32) -> bool {
+		unsafe { igIsMouseReleased(x) }
 	}
 	
 	pub fn is_mouse_down(&self, x: i32) -> bool {

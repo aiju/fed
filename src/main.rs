@@ -7,92 +7,15 @@ mod dat;
 mod hjgl;
 mod hjimgui;
 mod pointman;
+mod constrman;
 
 use gfx::*;
 use dat::*;
 use hjimgui::*;
 use pointman::*;
+use constrman::*;
 
 use std::collections::{HashMap, HashSet};
-
-#[derive(Copy, Clone, Debug)]
-enum Constr {
-	Hor(ID, ID),
-	Ver(ID, ID),
-	Dist(ID, ID, f32),
-}
-struct ConstrMan {
-	ct: Vec<Constr>,
-}
-impl ConstrMan {
-	fn new() -> ConstrMan {
-		ConstrMan {
-			ct: Vec::new(),
-		}
-	}
-	fn add(&mut self, c: Constr) {
-		self.ct.push(c);
-	}
-	fn solve(&mut self, pm: &mut PointMan) {
-		let mut newv: HashMap<ID, (Vec2, Vec2, Vec2)>
-			= pm.iter().map(|(id, &x)| (id, (x,x,x))).collect();
-		{
-			for (_, t) in newv.iter_mut() {
-				let v = t.2;
-				t.1 = v;
-			}
-			for c in &self.ct {
-				match c {
-				Constr::Hor(a, b) =>
-					{
-						let ap = newv.get(a).unwrap().2;
-						let bp = newv.get(b).unwrap().2;
-						let r = horcons(ap, bp);
-						(*newv.get_mut(a).unwrap()).2 = r.0;
-						(*newv.get_mut(b).unwrap()).2 = r.1;
-					},
-				Constr::Ver(a, b) =>
-					{
-						let ap = newv.get(a).unwrap().2;
-						let bp = newv.get(b).unwrap().2;
-						let r = vercons(ap, bp);
-						(*newv.get_mut(a).unwrap()).2 = r.0;
-						(*newv.get_mut(b).unwrap()).2 = r.1;
-					},
-				Constr::Dist(a, b, d) =>
-					{
-						let ap = newv.get(a).unwrap().2;
-						let bp = newv.get(b).unwrap().2;
-						let r = distcons(ap, bp, *d);
-						(*newv.get_mut(a).unwrap()).2 = r.0;
-						(*newv.get_mut(b).unwrap()).2 = r.1;
-					},
-				}
-			}
-			let f = newv.iter().map(|(_, x)| x.1.dist(x.2)).fold(0./0., f32::max);
-			if f < 1e-3 {
-		//		break;
-			}
-		}
-		for (&k, &(_, _, c)) in &newv {
-			pm[k] = c
-		}
-	}
-}
-fn horcons(a: Vec2, b: Vec2) -> (Vec2, Vec2) {
-	(Vec2::new(a.x, a.y * 0.9 + b.y * 0.1),
-	Vec2::new(b.x, b.y * 0.9 + a.y * 0.1))
-} 
-fn vercons(a: Vec2, b: Vec2) -> (Vec2, Vec2) {
-	(Vec2::new(a.x * 0.9 + b.x * 0.1, a.y),
-	Vec2::new(b.x * 0.9 + a.x * 0.1, b.y))
-} 
-fn distcons(a: Vec2, b: Vec2, d: f32) -> (Vec2, Vec2) {
-	let cd = a.dist(b);
-	let v = (a - b) * (d / cd - 1.0);
-	(a + v * 0.1, b - v * 0.1)
-} 
-
 
 #[derive(PartialEq)]
 enum Tool {
@@ -105,8 +28,10 @@ struct FED {
 	cm: ConstrMan,
 	t: Tool,
 	sel: HashSet<ID>,
+	startpos: Vec2,
 	downpos: Vec2,
 	dim_buf: ImguiBuf,
+	rectsel: bool
 }
 impl FED {
 	fn new() -> FED {
@@ -115,26 +40,48 @@ impl FED {
 			cm: ConstrMan::new(),
 			t: Tool::Move,
 			sel: HashSet::new(),
+			startpos: Vec2::zero(),
 			downpos: Vec2::zero(),
 			dim_buf: ImguiBuf::new(512),
+			rectsel: false,
 		}
 	}
 	fn moveclick(&mut self, p: Vec2, ctrl: bool) {
-		if !ctrl {
+		let g = self.pm.grab(p);
+		let sel_clicked = g.iter().fold(true, |a, x| a&&self.sel.contains(x));
+		if !ctrl && !sel_clicked {
 			self.sel.clear();
 		}
-		for i in self.pm.grab(p) {
-			self.sel.insert(i);
-			break;
+		if g.len() == 0 {
+			self.rectsel = true;
+		} else {
+			for i in g {
+				self.sel.insert(i);
+				break;
+			}
 		}
+		self.startpos = p;
 		self.downpos = p;
 	}
 	fn movedown(&mut self, p: Vec2) {
-		for &i in &self.sel {
-			self.pm[i] += p - self.downpos;
+		if self.rectsel {
+		} else {
+			for &i in &self.sel {
+				self.pm[i] += p - self.downpos;
+			}
+			self.cm.solve(&mut self.pm);
 		}
-		self.cm.solve(&mut self.pm);
 		self.downpos = p;
+	}
+	fn moveup(&mut self, p: Vec2) {
+		if self.rectsel {
+			let minx = if p.x < self.startpos.x { p.x } else { self.startpos.x };
+			let maxx = if p.x > self.startpos.x { p.x } else { self.startpos.x };
+			let miny = if p.y < self.startpos.y { p.y } else { self.startpos.y };
+			let maxy = if p.y > self.startpos.y { p.y } else { self.startpos.y };
+			self.sel = self.pm.iter().filter(|&(_, &q)| q.x >= minx && q.x <= maxx && q.y >= miny && q.y <= maxy).map(|(id,_)| id).collect();
+			self.rectsel = false;
+		}
 	}
 	fn render(&mut self, imgui: &mut Imgui) {
 		imgui.window("Derp")
@@ -182,7 +129,6 @@ impl FED {
 		}
 		self.cm.solve(&mut self.pm);
 		
-		
 		let cp = imgui.cursor_screen_pos();
 		imgui.invisible_button("canvas", Vec2::new(600.0, 600.0));
 		imgui.draw(&[DrawCmd::RectFilled(cp, cp + Vec2::new(600.0, 600.0), Color::new(255, 255, 255, 255))], Vec2::zero());
@@ -195,6 +141,8 @@ impl FED {
 						self.moveclick(p, imgui.is_ctrl_down());
 					} else if imgui.is_mouse_down(0) {
 						self.movedown(p);
+					} else if imgui.is_mouse_released(0) {
+						self.moveup(p);
 					}
 				},
 			Tool::Add =>
@@ -204,6 +152,10 @@ impl FED {
 			}
 		}
 		imgui.draw(&self.pm.draw(&self.sel), cp);
+		imgui.draw(&self.cm.draw(&self.pm), cp);
+		if self.rectsel {
+			imgui.draw(&[DrawCmd::Rect(self.startpos, self.downpos, Color::new(0, 0, 0, 255), 1.0)], cp);
+		}
 		imgui.end();
 	}
 }

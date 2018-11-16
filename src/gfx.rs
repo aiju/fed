@@ -2,14 +2,9 @@ extern crate sdl2;
 extern crate gl;
 extern crate imgui_sys;
 
-use dat::*;
 use hjimgui::*;
 
-use self::imgui_sys::*;
 use std::time::Instant;
-use std::os::raw::*;
-use self::gl::types::*;
-use std::ffi::CString;
 
 pub use self::sdl2::keyboard::Scancode;
 
@@ -42,7 +37,7 @@ impl GFX {
 	
 		window.gl_make_current(&gl_context).unwrap();
 	
-		let mut event_pump = sdl.event_pump().unwrap();
+		let event_pump = sdl.event_pump().unwrap();
 		
 		GFX { event_pump, sdl, gl_context, window, startt: Instant::now() }
 	}
