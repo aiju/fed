@@ -6,26 +6,44 @@ mod gfx;
 mod dat;
 mod hjgl;
 mod hjimgui;
-mod pointman;
-mod constrman;
+mod constr;
 
 use gfx::*;
 use dat::*;
 use hjimgui::*;
-use pointman::*;
-use constrman::*;
+use constr::*;
 
 use std::collections::{HashMap, HashSet};
 
-#[derive(PartialEq)]
+const POINT_RADIUS : f32 = 5.0;
+
+type Points = IDMap<Vec2>; 
+
+fn pointgrab(l: &Points, p: Vec2) -> Vec<ID> {
+	l.iter().filter(|(_,x)| x.dist(p) <= POINT_RADIUS).map(|(id,_)| id).collect()
+}
+
+fn pointdraw(l: &Points, sel: &HashSet<ID>) -> Vec<DrawCmd> {
+	l.iter().map(|(id,&c)|
+		DrawCmd::CircleFilled(c, POINT_RADIUS,
+			if sel.contains(&id) {
+				Color::new(255, 127, 127, 255)
+			} else {
+				Color::new(127, 0, 0, 255)
+			}
+		)
+	).collect()
+}
+
+#[derive(Debug,PartialEq)]
 enum Tool {
 	Move,
-	Add,
+	Add
 }
 
 struct FED {
-	pm: PointMan,
-	cm: ConstrMan,
+	points: Points,
+	constrs: Constrs,
 	t: Tool,
 	sel: HashSet<ID>,
 	startpos: Vec2,
@@ -36,8 +54,8 @@ struct FED {
 impl FED {
 	fn new() -> FED {
 		FED {
-			pm: PointMan::new(),
-			cm: ConstrMan::new(),
+			points: Points::new(),
+			constrs: Vec::new(),
 			t: Tool::Move,
 			sel: HashSet::new(),
 			startpos: Vec2::zero(),
@@ -47,7 +65,7 @@ impl FED {
 		}
 	}
 	fn moveclick(&mut self, p: Vec2, ctrl: bool) {
-		let g = self.pm.grab(p);
+		let g = pointgrab(&self.points, p);
 		let sel_clicked = g.iter().fold(true, |a, x| a&&self.sel.contains(x));
 		if !ctrl && !sel_clicked {
 			self.sel.clear();
@@ -67,9 +85,8 @@ impl FED {
 		if self.rectsel {
 		} else {
 			for &i in &self.sel {
-				self.pm[i] += p - self.downpos;
+				self.points[i] += p - self.downpos;
 			}
-			self.cm.solve(&mut self.pm);
 		}
 		self.downpos = p;
 	}
@@ -79,7 +96,7 @@ impl FED {
 			let maxx = if p.x > self.startpos.x { p.x } else { self.startpos.x };
 			let miny = if p.y < self.startpos.y { p.y } else { self.startpos.y };
 			let maxy = if p.y > self.startpos.y { p.y } else { self.startpos.y };
-			self.sel = self.pm.iter().filter(|&(_, &q)| q.x >= minx && q.x <= maxx && q.y >= miny && q.y <= maxy).map(|(id,_)| id).collect();
+			self.sel = self.points.iter().filter(|&(_, &q)| q.x >= minx && q.x <= maxx && q.y >= miny && q.y <= maxy).map(|(id,_)| id).collect();
 			self.rectsel = false;
 		}
 	}
@@ -98,21 +115,19 @@ impl FED {
 			for &a in &self.sel {
 				for &b in &self.sel {
 					if a != b {
-						self.cm.add(Constr::Hor(a, b));
+						self.constrs.push(Constr::Hor(a, b));
 					}
 				}
 			}
-			self.cm.solve(&mut self.pm)
 		}
 		if imgui.button("Vertical", Vec2::zero()) {
 			for &a in &self.sel {
 				for &b in &self.sel {
 					if a != b {
-						self.cm.add(Constr::Ver(a, b));
+						self.constrs.push(Constr::Ver(a, b));
 					}
 				}
 			}
-			self.cm.solve(&mut self.pm)
 		}
 		imgui.input_text("Dim", &mut self.dim_buf);
 		if imgui.button("Dimension", Vec2::zero()) {
@@ -120,39 +135,35 @@ impl FED {
 				for &a in &self.sel {
 					for &b in &self.sel {
 						if a != b {
-							self.cm.add(Constr::Dist(a, b, d));
+							self.constrs.push(Constr::Dist(a, b, d));
 						}
 					}
 				}
-				self.cm.solve(&mut self.pm);
 			}
 		}
-		self.cm.solve(&mut self.pm);
 		
 		let cp = imgui.cursor_screen_pos();
 		imgui.invisible_button("canvas", Vec2::new(600.0, 600.0));
 		imgui.draw(&[DrawCmd::RectFilled(cp, cp + Vec2::new(600.0, 600.0), Color::new(255, 255, 255, 255))], Vec2::zero());
 		let p = imgui.mouse_pos() - cp;
 		if imgui.is_item_hovered() {
-			match self.t {
-			Tool::Move =>
-				{
-					if imgui.is_mouse_clicked(0) {
-						self.moveclick(p, imgui.is_ctrl_down());
-					} else if imgui.is_mouse_down(0) {
-						self.movedown(p);
-					} else if imgui.is_mouse_released(0) {
-						self.moveup(p);
-					}
-				},
+                       match self.t {
+			Tool::Move => {
+				if imgui.is_mouse_clicked(0) {
+					self.moveclick(p, imgui.is_ctrl_down());
+				} else if imgui.is_mouse_down(0) {
+					self.movedown(p);
+				} else if imgui.is_mouse_released(0) {
+					self.moveup(p);
+				}
+			},
 			Tool::Add =>
 				if imgui.is_mouse_clicked(0) {
-					self.pm.add(p)
-				},
+					self.points.insert(ID::new(), p)
+				}
 			}
 		}
-		imgui.draw(&self.pm.draw(&self.sel), cp);
-		imgui.draw(&self.cm.draw(&self.pm), cp);
+		imgui.draw(&pointdraw(&self.points, &self.sel), cp);
 		if self.rectsel {
 			imgui.draw(&[DrawCmd::Rect(self.startpos, self.downpos, Color::new(0, 0, 0, 255), 1.0)], cp);
 		}
